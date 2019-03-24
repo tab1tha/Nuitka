@@ -584,6 +584,24 @@ class NuitkaPluginBase(object):
 
             warning("Use '--plugin-enable=%s' for: %s" % (self.plugin_name, message))
 
+    def getModuleNameAndKindFromFilename(self, module_filename):
+        """ Given a filename, decide the module name and kind.
+
+        Args:
+            module_name - file path of the module
+        Returns:
+            Tuple with the name of the module basename, and the kind of the
+            module derived from the file suffix. Can be None, None if is is not a
+            known file suffix.
+        Notes:
+            This doesn't concern itself with packages, that needs to be tracked
+            by the using code. It cannot be decided from the filename at all.
+        """
+
+        from nuitka.importing.Importing import getModuleNameAndKindFromFilename
+
+        return getModuleNameAndKindFromFilename(module_filename)
+
 
 class UserPluginBase(NuitkaPluginBase):
     """ Use this class to inherit from NuitkaPluginBase.

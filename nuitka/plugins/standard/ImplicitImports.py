@@ -27,7 +27,7 @@ import shutil
 
 from nuitka.plugins.PluginBase import NuitkaPluginBase
 from nuitka.PythonVersions import python_version
-from nuitka.utils.FileOperations import getFileContentByLine
+from nuitka.utils.FileOperations import getFileContentByLine, listDir, makePath
 from nuitka.utils.SharedLibraries import locateDLL
 from nuitka.utils.Utils import getOS
 
@@ -475,6 +475,17 @@ class NuitkaPluginPopularImplicitImports(NuitkaPluginBase):
 
         return False
 
+    cryptodome_mapping = {
+        "Cryptodome.Util.strxor": "Cryptodome.Util._strxor",
+        "Cryptodome.Util._cpu_features": "Cryptodome.Util._cpuid_c",
+        "Cryptodome.Hash.BLAKE2s": "Cryptodome.Hash._BLAKE2s",
+        "Cryptodome.Hash.SHA1": "Cryptodome.Hash._SHA1",
+        "Cryptodome.Hash.SHA256": "Cryptodome.Hash._SHA256",
+        "Cryptodome.Hash.MD5": "Cryptodome.Hash._MD5",
+        "Cryptodome.Protocol.KDF": "Cryptodome.Cipher._Salsa20,Cryptodome.Protocol._scrypt",
+        "Cryptodome.Cipher._mode_gcm": "Cryptodome.Hash._ghash_portable",
+    }
+
     def considerExtraDlls(self, dist_dir, module):
         full_name = module.getFullName()
 
@@ -485,6 +496,79 @@ class NuitkaPluginPopularImplicitImports(NuitkaPluginBase):
             shutil.copy(uuid_dll_path, dist_dll_path)
 
             return ((uuid_dll_path, dist_dll_path, None),)
+        elif full_name == "Cryptodome.Util._raw_api":
+            module_dir = module.getCompileTimeDirectory()
+            cipher_dir = os.path.join(module_dir, "..", "Cipher")
+            dist_dll_path = os.path.join(dist_dir, "Cryptodome", "Cipher")
+
+            result = []
+
+            for full_path, filename in listDir(cipher_dir):
+                if not filename.startswith("_raw"):
+                    continue
+
+                module_name, module_kind = self.getModuleNameAndKindFromFilename(
+                    full_path
+                )
+
+                if module_kind != "shlib":
+                    continue
+
+                result.append((full_path, os.path.join(dist_dll_path, filename), None))
+
+                # TODO: Why does this not happen in using code.
+                makePath(dist_dll_path)
+                shutil.copy(result[-1][0], result[-1][1])
+
+            # This directory is needed, because DLLs will be searched
+            # relative to it.
+            if result:
+                dist_util_path = os.path.join(dist_dir, "Cryptodome", "Util")
+                makePath(dist_util_path)
+
+                with open(os.path.join(dist_util_path, ".keep_dir"), "w") as output:
+                    output.write("Do not delete this directory, it's needed.")
+
+            return result
+        elif full_name in self.cryptodome_mapping:
+            module_dir = module.getCompileTimeDirectory()
+            target_names = self.cryptodome_mapping[full_name].split(",")
+
+            result = []
+
+            for target_name in target_names:
+
+                target_dir = os.path.join(
+                    module_dir,
+                    os.path.sep.join(full_name.count(".") * [".."]),
+                    os.path.dirname(target_name.replace(".", os.path.sep)),
+                )
+                dist_dll_path = os.path.join(
+                    dist_dir, os.path.dirname(target_name.replace(".", os.path.sep))
+                )
+
+                expected_name = target_name.split(".")[-1]
+
+                for full_path, filename in listDir(target_dir):
+                    if not filename.startswith(expected_name):
+                        continue
+
+                    module_name, module_kind = self.getModuleNameAndKindFromFilename(
+                        full_path
+                    )
+
+                    if module_kind != "shlib":
+                        continue
+                    if module_name != expected_name:
+                        continue
+
+                    makePath(dist_dll_path)
+                    shutil.copy(full_path, dist_dll_path)
+                    result.append(
+                        (full_path, os.path.join(dist_dll_path, filename), None)
+                    )
+
+            return result
 
         return ()
 
